@@ -40,6 +40,8 @@ int cmd_pwd(struct tokens *tokens);
 int cmd_cd(struct tokens *tokens);
 int cmd_wait(struct tokens *tokens);
 int cmd_jobs(struct tokens *tokens);
+int cmd_fg(struct tokens *tokens);
+int cmd_bg(struct tokens *tokens);
 
 int run_program(struct tokens *tokens);
 /* Built-in command functions take token array (see parse.h) and return int */
@@ -58,7 +60,9 @@ fun_desc_t cmd_table[] = {
   {cmd_pwd,  "pwd",  "print the current working directory"},
   {cmd_cd,   "cd",   "change the current working directory"},
   {cmd_wait, "wait", "wait until all background jobs have terminated before returning to the prompt"},
-  {cmd_jobs, "jobs", "No description"}
+  {cmd_jobs, "jobs", "No description"},
+  {cmd_fg,   "fg",   "Move the process with id pid to foreground"},
+  {cmd_bg,   "bg",   "Resume the background process with id pid"},
 };
 
 
@@ -86,7 +90,7 @@ int cmd_pwd(unused struct tokens *tokens) {
 }
 
 /* Changes the current working directory */
-int cmd_cd(unused struct tokens *tokens) {
+int cmd_cd(struct tokens *tokens) {
   char *p = tokens_get_token(tokens, 1);  
   if (!chdir(p)) {
     return 0;
@@ -97,13 +101,53 @@ int cmd_cd(unused struct tokens *tokens) {
 
 /* Wait until all background jobs have terminated before returning to the prompt */
 int cmd_wait(unused struct tokens *tokens) {
-  wait_for_running_jobs(job_list);
+  wait_all_running_jobs(job_list);
   return 0;
 }
 
 int cmd_jobs(unused struct tokens *tokens) {
   print_job_list(job_list);
   return 0;
+}
+
+int cmd_fg(struct tokens *tokens) {
+  char *token = tokens_get_token(tokens, 1);
+  pid_t pid;
+  if (token) {
+    pid = atoi(token);
+    if (pid < 0 ) {
+      printf("invalid pid\n");
+	  return -1;
+    }
+  }
+  else 
+    pid = -1;  
+  int rval = swith_job_to_foreground(pid, job_list);
+  if (rval == 1) { printf("\n"); return 0; }
+  else if (rval == NO_JOB) { printf("No unfinished job currently\n"); return -1; }
+  else if (rval == NO_SUCH_JOB) { printf("No such job\n"); return -1;}
+  else if (rval == JOB_HAS_DONE) { printf("job has terminated\n"); return -1; }
+  return 0; 
+}
+
+int cmd_bg(struct tokens *tokens) {
+  char *token = tokens_get_token(tokens, 1);
+  pid_t pid;
+  if (token) {
+    pid = atoi(token);
+    if (pid < 0 ) {
+      printf("invalid pid\n");
+	  return -1;
+    }
+  }
+  else 
+    pid = -1;  
+  int rval = resume_background_job(pid, job_list);
+  if (rval == 1) { printf("\n"); return 0; }
+  else if (rval == NO_JOB) { printf("No stopped background job currently\n"); return -1; }
+  else if (rval == NO_SUCH_JOB) { printf("No such job\n"); return -1;}
+  else if (rval == JOB_HAS_DONE) { printf("job has terminated\n"); return -1; }
+  return 0; 
 }
 
 int find_program_path(struct tokens *tokens, char *program_path) {
@@ -203,26 +247,16 @@ int run_program(struct tokens *tokens) {
   }
   else {
     if (background) {
-	  char *line = untokenize(tokens);
-	  struct job new_job = {pid, line, running, 1};
-	  push_job(job_list, new_job);
-	  free(line);
+	  char *desc = untokenize(tokens);
+	  push_job(job_list, pid, desc, running_background);
+	  free(desc);
     }
 	else {
-	  tcsetpgrp(0, pid);
-      int status;
-	  pid_t return_pid = waitpid(pid, &status, WUNTRACED);
-      if (WIFSIGNALED(status)) printf("\n");
-      else if (WIFSTOPPED(status)){
-		printf("\n");
-        char *line = untokenize(tokens);
-		struct job new_job = {return_pid, line, stopped, 1};
-		push_job(job_list, new_job);
- 		free(line);
-      }
-	  signal(SIGTTOU, SIG_IGN);
-	  tcsetpgrp(0, getpgrp());
-    }
+	  char *desc = untokenize(tokens);
+    int rval = wait_foreground_job(pid, job_list, desc);
+    if (rval) printf("\n");
+    free(desc);
+  }
     if (a!= -1) close(a);	
     return 0;
   }
@@ -283,7 +317,7 @@ int main(unused int argc, unused char *argv[]) {
     else {
       run_program(tokens);
     }
-    wait_for_terminated_background_jobs(job_list);
+    wait_terminated_background_jobs(job_list);
     if (shell_is_interactive)
       /* Please only print shell prompts when standard input is not a tty */
       fprintf(stdout, "%d: ", ++line_num);
