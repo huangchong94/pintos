@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
 #include "libhttp.h"
 
@@ -115,6 +116,7 @@ void http_send_data(int fd, char *data, size_t size) {
   ssize_t bytes_sent;
   while (size > 0) {
     bytes_sent = write(fd, data, size);
+    printf("sent %zd bytes\n", bytes_sent);
     if (bytes_sent < 0)
       return;
     size -= bytes_sent;
@@ -144,3 +146,30 @@ char *http_get_mime_type(char *file_name) {
     return "text/plain";
   }
 }
+
+void http_serve_file(int fd, int srcfd, char *path, int file_size) {
+  http_start_response(fd, 200);
+  http_send_header(fd, "Content-Type", http_get_mime_type(path)); 
+  char number[4096];
+  sprintf(number, "%d", file_size);
+  http_send_header(fd, "Content-Length", number);
+  http_end_headers(fd);
+  char *srcp = mmap(0, file_size, PROT_READ, MAP_PRIVATE, srcfd, 0);
+  http_send_data(fd, srcp, file_size);
+  munmap(srcp, file_size);
+}
+void http_serve_html(int fd, char *data) {
+  http_start_response(fd, 200);
+  http_send_header(fd, "Content-Type", "text/html");
+  http_end_headers(fd);
+  http_send_string(fd, data);
+}
+void http_client_error(int fd, int status_code, char *msg) {
+  http_start_response(fd, status_code);
+  http_send_header(fd, "Content-Type", "text/html");
+  http_end_headers(fd);
+  char html[] = "<p>404 NOT Found</p>";
+  http_send_string(fd, html);
+}
+
+

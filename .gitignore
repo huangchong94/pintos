@@ -2,5 +2,8 @@
 *.pyc
 *.swp
 *~
+*.pdf
+*.jpg
+*.txt
 .DS_Store
 pintos/**/build

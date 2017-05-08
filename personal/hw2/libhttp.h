@@ -43,5 +43,8 @@ void http_send_data(int fd, char *data, size_t size);
  * Helper function: gets the Content-Type based on a file name.
  */
 char *http_get_mime_type(char *file_name);
+void http_serve_file(int fd, int srcfd, char *path, int file_size);
+void http_serve_html(int fd, char *data);
+void http_client_error(int fd, int status_code, char *msg);
 
 #endif

@@ -43,24 +43,81 @@ int server_proxy_port;
  *      of files in the directory with links to each.
  *   4) Send a 404 Not Found response.
  */
+
+void  get_path(char *dest, char *request_path) {
+  dest[0] = '\0';
+  strcat(dest, server_files_directory);
+  strcat(dest, request_path);
+}
+void serve_file(int fd, char *path, int file_size) {
+  int srcfd = open(path, O_RDONLY, 0);
+  http_serve_file(fd, srcfd, path, file_size);
+  close(srcfd);
+}
+
+void serve_directory(int fd, char *path, int is_root) {
+  char data[8192];
+  data[0] = 0;
+  char href[1024];
+  DIR *dirp = opendir(path);
+  struct dirent *entp;
+  while ((entp=readdir(dirp))) {
+    if (strcmp(entp->d_name, ".")==0 || strcmp(entp->d_name, "..")==0)
+	  continue;
+    sprintf(href, "<a href=\"%s\">%s</a> <br>", entp->d_name, entp->d_name);
+    strcat(data, href);
+    printf("%s\n", entp->d_name);
+  }
+  closedir(dirp);
+  if (!is_root) 
+    strcat(data, "<a href=\"../\">Parent directory</a>");
+  http_serve_html(fd, data);
+}
+
 void handle_files_request(int fd) {
 
   /*
    * TODO: Your solution for Task 1 goes here! Feel free to delete/modify *
    * any existing code.
    */
-
   struct http_request *request = http_request_parse(fd);
+  char path[4096];
+  get_path(path, request->path);  
+  printf("path: %s\n", path);
+  if (access(path, F_OK)==-1) {
+    printf("no %s\n", path);
+    http_client_error(fd, 404, "...");
+    return;
+  }
 
-  http_start_response(fd, 200);
-  http_send_header(fd, "Content-Type", "text/html");
-  http_end_headers(fd);
-  http_send_string(fd,
+  struct stat sbuf;
+  stat(path, &sbuf);
+  if (S_ISREG(sbuf.st_mode)) 
+    serve_file(fd, path, sbuf.st_size);
+  else if (S_ISDIR(sbuf.st_mode)) {
+    char html_path[4096];
+    strcpy(html_path, path);
+    strcat(html_path, "/index.html");
+    if ((access(html_path, F_OK)) != -1) 
+      serve_file(fd, html_path, sbuf.st_size);
+    else {
+    printf("directory\n");
+    int is_root = strcmp(request->path, "/")==0;
+	serve_directory(fd, path, is_root);
+    return;
+    }
+  }
+  else {
+    http_start_response(fd, 200);
+    http_send_header(fd, "Content-Type", "text/html");
+    http_end_headers(fd);
+    http_send_string(fd,
       "<center>"
       "<h1>Welcome to httpserver!</h1>"
       "<hr>"
       "<p>Nothing's here yet.</p>"
       "</center>");
+  }
 }
 
 
