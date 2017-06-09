@@ -88,7 +88,7 @@ void handle_files_request(int fd) {
   struct http_request *request = http_request_parse(fd);
   char path[4096];
   get_path(path, request->path);  
-  printf("request path: %s\n", path);
+//  printf("request path: %s\n", path);
   if (access(path, F_OK)==-1) {
     printf("no %s\n", path);
     http_client_error(fd, 404, "...");
