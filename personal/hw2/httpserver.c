@@ -31,6 +31,11 @@ char *server_files_directory;
 char *server_proxy_hostname;
 int server_proxy_port;
 
+pthread_mutex_t thread_count_lock;
+pthread_cond_t cond;
+int num_threads_alive;
+int threads_keep_alive;
+pthread_t *threads;
 
 /*
  * Reads an HTTP request from stream (fd), and writes an HTTP response
@@ -49,6 +54,7 @@ void  get_path(char *dest, char *request_path) {
   strcat(dest, server_files_directory);
   strcat(dest, request_path);
 }
+
 void serve_file(int fd, char *path, int file_size) {
   int srcfd = open(path, O_RDONLY, 0);
   http_serve_file(fd, srcfd, path, file_size);
@@ -75,7 +81,6 @@ void serve_directory(int fd, char *path, int is_root) {
 }
 
 void handle_files_request(int fd) {
-
   /*
    * TODO: Your solution for Task 1 goes here! Feel free to delete/modify *
    * any existing code.
@@ -83,7 +88,7 @@ void handle_files_request(int fd) {
   struct http_request *request = http_request_parse(fd);
   char path[4096];
   get_path(path, request->path);  
-  printf("path: %s\n", path);
+  printf("request path: %s\n", path);
   if (access(path, F_OK)==-1) {
     printf("no %s\n", path);
     http_client_error(fd, 404, "...");
@@ -180,13 +185,70 @@ void handle_proxy_request(int fd) {
   */
 }
 
+void* thread_do(void (*request_handler)(int)) {
+	pthread_mutex_lock(&thread_count_lock);	
+	num_threads_alive++;
+	if (num_threads_alive == num_threads) {
+		pthread_cond_signal(&cond);
+	}	
+	pthread_mutex_unlock(&thread_count_lock);
+
+	while (threads_keep_alive) {
+		int client_fd = wq_pop(&work_queue);		
+		printf("pop client fd %d\n", client_fd);
+		if (client_fd!=-1 && threads_keep_alive) {
+			void (*func) (int);
+			func = (void (*) (int)) request_handler;
+			func(client_fd);
+			close(client_fd);
+		}
+	}
+
+	pthread_mutex_lock(&thread_count_lock);
+	num_threads_alive--;
+	if (num_threads_alive == 0) {
+		pthread_cond_signal(&cond);
+	}
+	pthread_mutex_unlock(&thread_count_lock);
+	return NULL;
+}
 
 void init_thread_pool(int num_threads, void (*request_handler)(int)) {
   /*
    * TODO: Part of your solution for Task 2 goes here!
    */
+	threads_keep_alive = 1;
+	num_threads_alive = 0;
+	pthread_mutex_init(&thread_count_lock, NULL);
+	pthread_cond_init(&cond, NULL);
+
+	threads = (pthread_t*)malloc(sizeof(pthread_t)*num_threads);
+	wq_init(&work_queue);	
+	
+	for (int i=0; i<num_threads; i++) {
+		pthread_create(threads+i, NULL, (void*)&thread_do, request_handler);
+		pthread_detach(*(threads+i));
+	}
+    
+	pthread_mutex_lock(&thread_count_lock);
+	while (num_threads_alive != num_threads) {
+		pthread_cond_wait(&cond, &thread_count_lock);
+	}
+	pthread_mutex_unlock(&thread_count_lock);
 }
 
+void destroy_thread_pool() {
+	threads_keep_alive = 0;
+	wq_unblock_pop_requests(&work_queue);
+	
+	pthread_mutex_lock(&thread_count_lock);
+	while (num_threads_alive != 0) {
+		pthread_cond_wait(&cond, &thread_count_lock);
+	}
+	pthread_mutex_unlock(&thread_count_lock);
+    
+	free(threads);
+}
 /*
  * Opens a TCP stream socket on all interfaces with port number PORTNO. Saves
  * the fd number of the server socket in *socket_number. For each accepted
@@ -243,14 +305,9 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
     printf("Accepted connection from %s on port %d\n",
         inet_ntoa(client_address.sin_addr),
         client_address.sin_port);
-
-    // TODO: Change me?
-    request_handler(client_socket_number);
-    close(client_socket_number);
-
-    printf("Accepted connection from %s on port %d\n",
-        inet_ntoa(client_address.sin_addr),
-        client_address.sin_port);
+    
+    wq_push(&work_queue, client_socket_number);	
+	printf("push client fd %d\n", client_socket_number);
   }
 
   shutdown(*socket_number, SHUT_RDWR);

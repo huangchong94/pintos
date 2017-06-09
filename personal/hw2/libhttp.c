@@ -116,7 +116,7 @@ void http_send_data(int fd, char *data, size_t size) {
   ssize_t bytes_sent;
   while (size > 0) {
     bytes_sent = write(fd, data, size);
-    printf("sent %zd bytes\n", bytes_sent);
+    printf("sent %zd bytes to fd %d\n", bytes_sent, fd);
     if (bytes_sent < 0)
       return;
     size -= bytes_sent;
