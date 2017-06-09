@@ -195,7 +195,7 @@ void* thread_do(void (*request_handler)(int)) {
 
 	while (threads_keep_alive) {
 		int client_fd = wq_pop(&work_queue);		
-		printf("pop client fd %d\n", client_fd);
+	//	printf("pop client fd %d\n", client_fd);
 		if (client_fd!=-1 && threads_keep_alive) {
 			void (*func) (int);
 			func = (void (*) (int)) request_handler;
@@ -307,7 +307,7 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
         client_address.sin_port);
     
     wq_push(&work_queue, client_socket_number);	
-	printf("push client fd %d\n", client_socket_number);
+//	printf("push client fd %d\n", client_socket_number);
   }
 
   shutdown(*socket_number, SHUT_RDWR);
