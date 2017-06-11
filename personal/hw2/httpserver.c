@@ -37,6 +37,13 @@ int num_threads_alive;
 int threads_keep_alive;
 pthread_t *threads;
 
+int client_eof = 0;
+
+struct fds {
+	int src_fd;
+	int target_fd;
+	int is_reading_request;
+};
 /*
  * Reads an HTTP request from stream (fd), and writes an HTTP response
  * containing:
@@ -126,6 +133,42 @@ void handle_files_request(int fd) {
 }
 
 
+void* read_and_write(void *arg) {
+	struct fds *fd_p = arg;
+	int src_fd = fd_p->src_fd;
+	int target_fd = fd_p->target_fd;
+	int is_reading_request = fd_p->is_reading_request;
+
+	int nread = 0;
+	char *buffer = (char*)malloc(sizeof(char)*8192);
+    
+	if (is_reading_request) {
+		printf("about to readrequests\n");
+	while ((nread = read(src_fd, buffer, 8192)) > 0) {
+			printf("read %d bytes from fd %d ",nread, src_fd);
+			http_send_data(target_fd, buffer, nread);
+	}
+		client_eof = 1;	
+	}
+
+	else {
+		printf("about to read response\n");
+		while (1) {
+			while ((nread=read(src_fd, buffer, 8192)) > 0) {
+				printf("read %d bytes from fd %d ",nread, src_fd);
+				http_send_data(target_fd, buffer, nread);
+			}
+			if (client_eof) {
+				printf("client eof \n");
+				break;
+			}
+		}
+	}
+    free(buffer);
+	printf("fd %d读取结束\n", src_fd);
+	return NULL;
+}
+
 /*
  * Opens a connection to the proxy target (hostname=server_proxy_hostname and
  * port=server_proxy_port) and relays traffic to/from the stream fd and the
@@ -163,7 +206,11 @@ void handle_proxy_request(int fd) {
   }
 
   char *dns_address = target_dns_entry->h_addr_list[0];
-
+  printf("address %s\n", dns_address);
+  for (int i=0; i<4; i++) {
+	printf("%u.", (unsigned char)dns_address[i]);
+  }
+  printf("\n");
   memcpy(&target_address.sin_addr, dns_address, sizeof(target_address.sin_addr));
   int connection_status = connect(client_socket_fd, (struct sockaddr*) &target_address,
       sizeof(target_address));
@@ -183,6 +230,26 @@ void handle_proxy_request(int fd) {
   /* 
   * TODO: Your solution for task 3 belongs here! 
   */
+  printf("browser fd %d, proxy fd %d\n", fd, client_socket_fd);
+  pthread_t p1, p2;
+  struct fds arg1, arg2;
+
+  arg1.src_fd = fd;
+  arg1.target_fd = client_socket_fd;
+  arg1.is_reading_request = 1;
+  pthread_create(&p1, NULL, &read_and_write, &arg1);
+
+  arg2.src_fd = client_socket_fd;
+  arg2.target_fd = fd;
+  arg2.is_reading_request = 0;
+  pthread_create(&p2, NULL, &read_and_write, &arg2);
+
+  pthread_join(p1, NULL);
+  pthread_join(p2, NULL);
+  
+  close(fd);
+  close(client_socket_fd);
+
 }
 
 void* thread_do(void (*request_handler)(int)) {
@@ -302,7 +369,7 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
       continue;
     }
 
-    printf("Accepted connection from %s on port %d\n",
+    printf("\n\n\nAccepted connection from %s on port %d\n",
         inet_ntoa(client_address.sin_addr),
         client_address.sin_port);
     
