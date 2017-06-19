@@ -32,7 +32,7 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
-static void update_sleeping_threads();
+static void update_sleeping_threads(void);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -95,7 +95,6 @@ void
 timer_sleep (int64_t ticks)
 {
   if (ticks <= 0) return;
-  int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
 
@@ -178,6 +177,29 @@ void
 timer_print_stats (void)
 {
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
+}
+
+static void
+update_sleeping_threads() {
+	
+  struct list_elem *e;
+
+  ASSERT (intr_get_level () == INTR_OFF);
+  for (e = list_begin (&sleepers); e != list_end (&sleepers);)
+    {
+      struct thread *t = list_entry (e, struct thread, elem);
+	  t->remaining_ticks--;
+	  if (t->remaining_ticks == 0) {
+		list_remove(e);
+
+		/* list_next must execute before thread_unblock 
+	       because thread_unblock will rewrite t.elem->next */
+		e = list_next(e);
+		thread_unblock(t);
+	  }
+	  else
+		e = list_next(e);
+    }
 }
 
 /* Timer interrupt handler. */
