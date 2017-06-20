@@ -71,6 +71,8 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+static void priority_insert_thread_to_ready_list(struct thread *);
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -237,7 +239,10 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  if (!thread_mlfqs) {
+	priority_insert_thread_to_ready_list(t);
+  }
+  else {  list_push_back (&ready_list, &t->elem);}
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -307,8 +312,14 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread)
-    list_push_back (&ready_list, &cur->elem);
+  if (cur != idle_thread) {
+    if (!thread_mlfqs) {
+	  priority_insert_thread_to_ready_list (thread_current ()); 	  
+	}
+    else {	
+   	  list_push_back (&ready_list, &cur->elem);
+	}
+  }
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -578,6 +589,24 @@ allocate_tid (void)
   lock_release (&tid_lock);
 
   return tid;
+}
+
+static void
+priority_insert_thread_to_ready_list(struct thread *cur)
+{
+  struct list_elem *e;
+  for (e = list_begin (&ready_list); e != list_end (&ready_list);
+       e = list_next (e))
+    {
+      struct thread *t = list_entry (e, struct thread, elem);
+      if (cur->priority > t->priority) {
+		list_insert(&t->elem, &cur->elem);
+		break;
+      }
+    }
+  if (e == list_end (&ready_list)) {
+	list_push_back (&ready_list, &cur->elem);
+  }
 }
 
 /* Offset of `stack' member within `struct thread'.
