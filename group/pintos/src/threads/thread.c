@@ -202,7 +202,8 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-
+  if (!thread_mlfqs) 
+	thread_yield();
   return tid;
 }
 
@@ -402,7 +403,6 @@ idle (void *idle_started_ UNUSED)
   struct semaphore *idle_started = idle_started_;
   idle_thread = thread_current ();
   sema_up (idle_started);
-
   for (;;)
     {
       /* Let someone else run. */
