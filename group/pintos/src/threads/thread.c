@@ -137,7 +137,7 @@ thread_tick (void)
     kernel_ticks++;
 
   /* Enforce preemption. */
-  if (++thread_ticks >= TIME_SLICE)
+  if (!thread_mlfqs || ++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
 }
 
@@ -348,6 +348,7 @@ void
 thread_set_priority (int new_priority)
 {
   thread_current ()->priority = new_priority;
+  thread_yield ();
 }
 
 /* Returns the current thread's priority. */
