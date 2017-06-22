@@ -137,7 +137,7 @@ thread_tick (void)
     kernel_ticks++;
 
   /* Enforce preemption. */
-  if (!thread_mlfqs || ++thread_ticks >= TIME_SLICE)
+  if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
 }
 

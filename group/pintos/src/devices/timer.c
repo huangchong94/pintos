@@ -185,11 +185,19 @@ update_sleeping_threads() {
   struct list_elem *e;
 
   ASSERT (intr_get_level () == INTR_OFF);
+
+  int should_yield = 0;
+  int cur_thread_priority = thread_current ()->priority;
   for (e = list_begin (&sleepers); e != list_end (&sleepers);)
     {
       struct thread *t = list_entry (e, struct thread, elem);
 	  t->remaining_ticks--;
 	  if (t->remaining_ticks == 0) {
+	
+		if (!should_yield && t->priority > cur_thread_priority) {
+		  should_yield = 1;
+		}
+		
 		list_remove(e);
 
 		/* list_next must execute before thread_unblock 
@@ -200,6 +208,8 @@ update_sleeping_threads() {
 	  else
 		e = list_next(e);
     }
+  if (should_yield) 
+	intr_yield_on_return ();
 }
 
 /* Timer interrupt handler. */
