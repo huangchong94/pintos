@@ -71,7 +71,7 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
-static void priority_insert_thread_to_ready_list(struct thread *);
+static void priority_insert_thread_to_list(struct thread *, struct list * , int);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -241,9 +241,11 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   if (!thread_mlfqs) {
-	priority_insert_thread_to_ready_list(t);
+	priority_insert_thread_to_list(t, &ready_list, 1);
   }
-  else {  list_push_back (&ready_list, &t->elem);}
+  else {
+    list_push_back (&ready_list, &t->elem);
+  }
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -315,7 +317,7 @@ thread_yield (void)
   old_level = intr_disable ();
   if (cur != idle_thread) {
     if (!thread_mlfqs) {
-	  priority_insert_thread_to_ready_list (thread_current ()); 	  
+	  priority_insert_thread_to_list (thread_current (), &ready_list, 1); 	  
 	}
     else {	
    	  list_push_back (&ready_list, &cur->elem);
@@ -348,7 +350,9 @@ void
 thread_set_priority (int new_priority)
 {
   thread_current ()->priority = new_priority;
-  thread_yield ();
+  if (new_priority < list_entry (list_begin (&ready_list), struct thread, elem)->priority) {  
+    thread_yield ();
+  }
 }
 
 /* Returns the current thread's priority. */
@@ -593,20 +597,26 @@ allocate_tid (void)
 }
 
 static void
-priority_insert_thread_to_ready_list(struct thread *cur)
+priority_insert_thread_to_list(struct thread *cur, struct list *list, int use_elem)
 {
   struct list_elem *e;
-  for (e = list_begin (&ready_list); e != list_end (&ready_list);
+  for (e = list_begin (list); e != list_end (list);
        e = list_next (e))
     {
-      struct thread *t = list_entry (e, struct thread, elem);
+      struct thread *t;
+	  if (use_elem) {
+	    t = list_entry (e, struct thread, elem);
+	  }
+	  else {
+		t = list_entry (e, struct thread, allelem);
+	  }
       if (cur->priority > t->priority) {
 		list_insert(&t->elem, &cur->elem);
 		break;
       }
     }
-  if (e == list_end (&ready_list)) {
-	list_push_back (&ready_list, &cur->elem);
+  if (e == list_end (list)) {
+	list_push_back (list, &cur->elem);
   }
 }
 
