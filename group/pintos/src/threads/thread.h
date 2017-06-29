@@ -104,6 +104,10 @@ struct thread
     unsigned magic;                     /* Detects stack overflow. */
 
 	int remaining_ticks;
+	
+	int original_priority;
+	struct list locks;
+	struct lock *lock_wanted;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -142,4 +146,7 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+struct thread *thread_with_highest_priority_in_list (struct list *);
+
+void thread_set_priority_tail (int);
 #endif /* threads/thread.h */
