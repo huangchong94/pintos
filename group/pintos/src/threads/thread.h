@@ -108,6 +108,9 @@ struct thread
 	int original_priority;
 	struct list locks;
 	struct lock *lock_wanted;
+    
+	int nice;
+	fixed_point_t recent_cpu;
   };
 
 /* If false (default), use round-robin scheduler.
