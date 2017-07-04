@@ -403,6 +403,7 @@ int main(int argc, char **argv) {
 
   /* Default settings */
   server_port = 8000;
+  num_threads = 1;
   void (*request_handler)(int) = NULL;
 
   int i;
