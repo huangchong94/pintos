@@ -7,3 +7,6 @@
 *.txt
 .DS_Store
 pintos/**/build
+.*
+!/.gitignore
+
