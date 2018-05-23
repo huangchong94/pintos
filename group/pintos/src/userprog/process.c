@@ -18,6 +18,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
@@ -41,8 +42,18 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  /* extract program name from file_name */
+  char *program_name = (char*)malloc (16);
+  const char *p = file_name;
+  while (*p && *p != ' ') 
+    p++;
+  int len = p - file_name + 1;
+  memcpy (program_name, file_name, len);
+  program_name[len-1] = 0;
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (program_name, PRI_DEFAULT, start_process, fn_copy);
+  free (program_name);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
   return tid;
@@ -201,6 +212,7 @@ struct Elf32_Phdr
 #define PF_R 4          /* Readable. */
 
 static bool setup_stack (void **esp);
+static void push_params(char **tokens, int argc, void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -226,8 +238,20 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  int argc = 0;
+  char *token, *save_ptr;
+  char **tokens = malloc(20 * sizeof (char*));
+  int len = strlen(file_name);
+  char *file_name_copy = malloc(len+1); 
+  memcpy(file_name_copy, file_name, len+1);
+  for (token = strtok_r (file_name_copy, " ", &save_ptr); token != NULL;
+              token = strtok_r (NULL, " ", &save_ptr))
+  {
+    tokens[argc++] = token;
+  }
+
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (tokens[0]);
   if (file == NULL)
     {
       printf ("load: %s: open failed\n", file_name);
@@ -309,6 +333,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* Set up stack. */
   if (!setup_stack (esp))
     goto done;
+
+  push_params(tokens, argc, esp);
+  free(file_name_copy);
+  free(tokens);
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
@@ -448,6 +476,50 @@ setup_stack (void **esp)
     }
   return success;
 }
+
+/* push parameters for user main function onto user stack */
+/* no word align */
+static void
+push_params(char **tokens, int argc, void **esp)
+{
+  char **esp_p = (char**)esp;
+  char *token = NULL;
+  int len = 0;
+  int i = 0;
+
+  /* push null-terminated parameter strings in reverse order*/
+  for (i = argc-1; i >= 0; i--) {
+    token = tokens[i]; 
+    len = strlen(token) + 1;
+    (*esp_p) -= len;
+    memcpy(*esp, token, len); 
+    tokens[i] = *esp;
+  }
+
+  /* push null pointer */ 
+  (*esp_p) -= sizeof (char*);
+  memset(*esp, 0, sizeof (char*));
+
+  /* push null-terminated parameter string pointers in reverse order */
+  for (i = argc-1; i >= 0; i--) {
+    (*esp_p) -= sizeof (char*);
+    memcpy(*esp, tokens+i, sizeof (char*)); 
+  }
+
+  /* push argv */
+  char *argv = *esp_p;
+  (*esp_p) -= sizeof (char*);
+  memcpy(*esp, &argv, sizeof (char*));
+
+  /* push argc */
+  (*esp_p) -= sizeof (int); 
+  memcpy(*esp, &argc, sizeof (int));
+
+  /* push fake return address */
+  (*esp_p) -= sizeof (char*);
+  memset(*esp, 0, sizeof (char*));
+}
+
 
 /* Adds a mapping from user virtual address UPAGE to kernel
    virtual address KPAGE to the page table.

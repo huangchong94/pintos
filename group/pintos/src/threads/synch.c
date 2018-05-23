@@ -129,7 +129,7 @@ void
 sema_up (struct semaphore *sema)
 {
   int priority = _sema_up (sema);
-  if (priority > thread_current ()->priority)
+  if (priority > thread_current ()->priority) {
     if (intr_context ())
       /* 如果intr_context 为True 说明sema_up正在被外部中断的handler调用
        * 这时不能直接调用thread_yield，因为thread_yield
@@ -137,6 +137,7 @@ sema_up (struct semaphore *sema)
       intr_yield_on_return ();
     else
       thread_yield ();
+  }
 }
 
 static void sema_test_helper (void *sema_);
