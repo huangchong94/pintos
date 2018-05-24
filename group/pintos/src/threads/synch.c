@@ -129,6 +129,9 @@ void
 sema_up (struct semaphore *sema)
 {
   int priority = _sema_up (sema);
+  /* 之所以有这一个判断, 因为thread_exit可能会调用sema_up */
+  if (thread_status() != THREAD_RUNNING)
+    return;
   if (priority > thread_current ()->priority) {
     if (intr_context ())
       /* 如果intr_context 为True 说明sema_up正在被外部中断的handler调用

@@ -1,13 +1,19 @@
 #include "userprog/syscall.h"
+#include "userprog/process.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 #include "devices/serial.h"
 #include "devices/vga.h"
+#include "devices/shutdown.h"
 
 static void syscall_handler (struct intr_frame *);
+tid_t sys_exec (const char *file);
+int sys_wait (tid_t tid);
+void sys_halt (void);
 int check_pointer(void *p);
 int check_args(uint32_t *args);
 
@@ -34,6 +40,20 @@ syscall_handler (struct intr_frame *f UNUSED)
 
   if (args[0] == SYS_PRACTICE) {
     f->eax = args[1] + 1;
+  }
+
+  if (args[0] == SYS_EXEC) {
+    char *file = (char*)args[1];
+    f->eax = sys_exec (file);
+  }
+
+  if (args[0] == SYS_WAIT) {
+    tid_t tid = args[1];
+    f->eax = sys_wait (tid); 
+  }
+
+  if (args[0] == SYS_HALT) {
+    sys_halt ();
   }
 
   if (args[0] == SYS_EXIT) {
@@ -66,9 +86,25 @@ sys_write(int fd, void *buffer, unsigned size)
 }
 
 
+tid_t
+sys_exec(const char *file) {
+  return process_execute(file);
+}
+
+int
+sys_wait (tid_t tid) {
+  return process_wait (tid);
+}
+
+void
+sys_halt () {
+  shutdown_power_off ();
+}
+
 void
 sys_exit(int status) {
   printf("%s: exit(%d)\n", (char*)(&thread_current ()->name), status); 
+  thread_current ()->exit_status = status;
   thread_exit();
 }
 

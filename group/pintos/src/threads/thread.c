@@ -120,6 +120,10 @@ thread_init (void)
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
   ready_threads += 1;
+
+#ifdef USERPROG
+  process_init(initial_thread);
+#endif
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -218,6 +222,10 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
+#ifdef USERPROG
+  process_init(t);
+#endif
+
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
   kf->eip = NULL;
@@ -313,6 +321,14 @@ thread_current (void)
   return t;
 }
 
+enum
+thread_status thread_status(void)
+{
+  struct thread *t = running_thread ();
+  ASSERT (is_thread (t));
+  return t->status;
+}
+
 /* Returns the running thread's tid. */
 tid_t
 thread_tid (void)
@@ -335,8 +351,24 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
-  list_remove (&thread_current()->allelem);
+  struct thread *cur = thread_current ();
+  list_remove (&cur->allelem);
+#ifdef USERPROG
+  if (cur->p_ptr) {
+    cur->status = THREAD_ZOMBIE;
+    /* 顺序很重要，sema_up必须在置状态语句之后 */
+    if (!cur->load_success)
+      sema_up (&(cur->load_sema));
+    sema_up (&(cur->wait_sema));
+  }
+  /* 说明父进程已经process_exit 将自身状态置为dying,
+   * 让thread_schedule_tail回收资源 */
+  else {
+    cur->status = THREAD_DYING;
+  }
+#else
   thread_current ()->status = THREAD_DYING;
+#endif
   ready_threads -= 1;
   schedule ();
   NOT_REACHED ();

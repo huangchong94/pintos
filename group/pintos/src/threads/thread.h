@@ -13,6 +13,7 @@ enum thread_status
     THREAD_RUNNING,     /* Running thread. */
     THREAD_READY,       /* Not running but ready to run. */
     THREAD_BLOCKED,     /* Waiting for an event to trigger. */
+    THREAD_ZOMBIE,      /* Waiting for parent process to reape */
     THREAD_DYING        /* About to be destroyed. */
   };
 
@@ -111,6 +112,17 @@ struct thread
     
 	int nice;
 	fixed_point_t recent_cpu;
+        
+#ifdef USERPROG
+	int exit_status;                 /* 用于父进程wait */
+	struct thread *p_ptr;            /* 指向父进程     */
+	struct list child_list;  
+	struct list_elem child_elem;
+	int load_success;                /* 装载用户程序是否成功 */
+	struct semaphore load_sema;      /* 用于装载用户程序时，父子进程的同步 */
+	struct semaphore wait_sema;       /* 父进程wait时sema_down子进程的sema。
+					    子进程thread_exit完成前，sema_up */
+#endif
   };
 
 /* If false (default), use round-robin scheduler.
@@ -131,6 +143,7 @@ void thread_block (void);
 void thread_unblock (struct thread *);
 
 struct thread *thread_current (void);
+enum thread_status thread_status(void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 

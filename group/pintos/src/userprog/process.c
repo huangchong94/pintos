@@ -27,7 +27,8 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
-   thread id, or TID_ERROR if the thread cannot be created. */
+   thread id, or TID_ERROR if the thread cannot be created
+   or user program load failed. */
 tid_t
 process_execute (const char *file_name)
 {
@@ -54,9 +55,18 @@ process_execute (const char *file_name)
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (program_name, PRI_DEFAULT, start_process, fn_copy);
   free (program_name);
-  if (tid == TID_ERROR)
+  if (tid == TID_ERROR) {
     palloc_free_page (fn_copy);
-  return tid;
+    return tid;
+  }
+
+  struct thread *t = get_child_process(tid);
+  sema_down(&(t->load_sema));
+  if (t->load_success)
+    return tid;
+  list_remove (&(t->child_elem));
+  palloc_free_page (t);
+  return TID_ERROR;
 }
 
 /* A thread function that loads a user process and starts it
@@ -74,11 +84,13 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
-
+  thread_current ()->load_success = success;
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success)
     thread_exit ();
+  /* 顺序很重要 */
+  sema_up (&(thread_current ()->load_sema));
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -102,8 +114,19 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED)
 {
-  sema_down (&temporary);
-  return 0;
+  if (child_tid < 1)
+    return -1;
+  struct thread *t = get_child_process (child_tid);
+  if (!t)
+    return -1;
+
+  /* 子进程时thread_exit会sema_up wait_sema */
+  sema_down (&(t->wait_sema));
+  ASSERT (t->status == THREAD_ZOMBIE);
+  int exit_status = t->exit_status;
+  list_remove (&(t->child_elem));
+  palloc_free_page (t);
+  return exit_status;
 }
 
 /* Free the current process's resources. */
@@ -129,7 +152,32 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-  sema_up (&temporary);
+  
+  /* 遍历子进程，如果状态为阻塞态，说明子进程还没有运行完
+   * 将其p_ptr置为NULL,
+   * 这样子进程在thread_exit会将自身状态置为DYING
+   * 这样thread_schedule_tail会回收其资源, 因为下面的代码是关中断后执行
+   * 以及thread_exit下半段也是在关中断后执行
+   * 所以能保证父子进程thread_exit交替执行时的正确性
+   * 不会出现并发问题
+   * 如果状态为ZOMBIE或DYING回收资源
+   */
+  enum intr_level old_level;
+  old_level = intr_disable ();
+  struct list_elem *e;
+  struct list *c_list = &(thread_current ()->child_list);
+  for (e = list_begin (c_list); e != list_end (c_list);) {
+    struct thread *t = list_entry (e, struct thread, child_elem);
+    if (t->status == THREAD_ZOMBIE || t->status == THREAD_DYING) {
+      list_pop_front (c_list);
+      palloc_free_page (t);
+    }
+    else {
+      t->p_ptr = NULL;
+      e = list_next (e);
+    }
+  }
+  intr_set_level (old_level);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -148,6 +196,32 @@ process_activate (void)
   tss_update ();
 }
 
+void
+process_init(struct thread *t)
+{
+  t->exit_status = -1;
+  t->load_success = false;
+  list_init (&(t->child_list));
+  sema_init(&(t->load_sema), 0); 
+  sema_init(&(t->wait_sema), 0);
+  struct thread *cur = thread_current ();
+  t->p_ptr = cur;
+  list_push_back (&(cur->child_list), &(t->child_elem));
+}
+
+struct thread*
+get_child_process(tid_t tid)
+{
+  struct thread *cur = thread_current ();
+  struct list *c_list = &(cur->child_list);
+  struct list_elem *e;
+  for (e = list_begin (c_list); e != list_end (c_list); e = list_next (e)) {
+    struct thread *child = list_entry (e, struct thread, child_elem);
+    if (child->tid == tid)
+      return child;
+  }
+  return NULL;
+}
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
 
