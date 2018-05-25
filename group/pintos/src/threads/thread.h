@@ -107,8 +107,8 @@ struct thread
 	int remaining_ticks;
 	
 	int original_priority;
-	struct list locks;
-	struct lock *lock_wanted;
+	struct list locks;              /* 线程持有的锁     */
+	struct lock *lock_wanted;       /* 导致线程阻塞的锁 */
     
 	int nice;
 	fixed_point_t recent_cpu;

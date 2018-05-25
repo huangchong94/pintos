@@ -33,6 +33,7 @@
 #include "threads/thread.h"
 
 static int _sema_up (struct semaphore *);
+static void lock_remove(struct lock *lock);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -220,9 +221,11 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  /* priority donation */
-  if (!thread_mlfqs) { 
-    enum intr_level old_level = intr_disable ();
+  enum intr_level old_level = intr_disable ();
+  /* priority donation 
+   * t依赖t1解锁, t1依赖t2解锁, t2依赖t3解锁....直到tn
+   * 所以可能需要把t的priority赋给t1-tn*/
+  if (!thread_mlfqs) {
 
     if (lock->holder) {
 	  struct thread *t = thread_current ();
@@ -241,7 +244,6 @@ lock_acquire (struct lock *lock)
 	  }
     }
 
-    intr_set_level (old_level);
     thread_current ()->lock_wanted = lock;
   }
   /* end priority donation */
@@ -251,6 +253,7 @@ lock_acquire (struct lock *lock)
   lock->holder = thread_current ();
   thread_current ()->lock_wanted = NULL;
   list_push_back (&lock->holder->locks, &lock->elem);
+  intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -283,7 +286,10 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-
+  /* 这段代码是否需要像lock_acquire那样全部在关中断后运行？
+   * 似乎不要, lock_acquire如果不在一开始就关中断，特定情况有可能死循环
+   */
+  lock_remove (lock);
   lock->holder = NULL;
   if (thread_mlfqs)
 	sema_up (&lock->semaphore);
@@ -292,20 +298,17 @@ lock_release (struct lock *lock)
   
     struct thread *t = thread_current ();
     int priority_should_set = t->original_priority;
-  
+    
+    /* 此时线程可能还持有其他锁，这些锁也可能有相应的等待者，等待者之中
+     * 取优先级最高的与original_priority比较，将更大的值赋给t->priority */
     struct list_elem *e;
     for (e = list_begin (&t->locks); e != list_end (&t->locks); e = list_next (e)) {
 	  struct lock *lock1 = list_entry (e, struct lock, elem);
-	  if (lock1 == lock) {
-	    list_remove (e);
-	  }
-	  else {
-	    struct list *waiters = &lock1->semaphore.waiters;
-        if (!list_empty (waiters)) {
-           int priority = thread_with_highest_priority_in_list (waiters)->priority;
-		   priority_should_set = priority > priority_should_set ? priority : priority_should_set;
-	    }	  
-	  }
+	  struct list *waiters = &lock1->semaphore.waiters;
+          if (!list_empty (waiters)) {
+            int priority = thread_with_highest_priority_in_list (waiters)->priority;
+            priority_should_set = priority > priority_should_set ? priority : priority_should_set;
+	  }	  
     }
     t->priority = priority_should_set;
     thread_set_priority_tail (priority_should_set);
@@ -421,4 +424,10 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
+}
+
+static void
+lock_remove (struct lock *lock)
+{
+  list_remove (&(lock->elem));
 }

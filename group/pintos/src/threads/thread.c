@@ -430,6 +430,11 @@ thread_set_priority (int new_priority)
 
   struct thread *t = thread_current ();
   if (new_priority == t->priority) return;
+  /* 为什么是new_priority而不是priority。因为original_priority是
+   * 用来记录priority donation之前的原始优先级。这里set_priority
+   * 的作用是重置线程优先级，所以original_priority=new_priority
+   * 就像thread_create时，original_priority = priority,因为要实现优先级调度
+   * 所以未必会将new_priority赋给t->priority */
   t->original_priority = new_priority;
   int should_set_priority = 1;
   struct list_elem *e;
