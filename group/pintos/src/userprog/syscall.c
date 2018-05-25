@@ -9,6 +9,7 @@
 #include "devices/serial.h"
 #include "devices/vga.h"
 #include "devices/shutdown.h"
+#include "lib/string.h"
 
 static void syscall_handler (struct intr_frame *);
 tid_t sys_exec (const char *file);
@@ -16,6 +17,7 @@ int sys_wait (tid_t tid);
 void sys_halt (void);
 int check_pointer(void *p);
 int check_args(uint32_t *args);
+int check_string(const char *s);
 
 void
 syscall_init (void)
@@ -67,6 +69,8 @@ sys_write(int fd, void *buffer, unsigned size)
 {
   if (fd < 0)
     return -1;
+  if (!check_string ((char*)buffer))
+    sys_exit(-1);
 
   unsigned cnt = 0;
   char *buf = (char*)buffer;
@@ -88,6 +92,11 @@ sys_write(int fd, void *buffer, unsigned size)
 
 tid_t
 sys_exec(const char *file) {
+  /* 注意这里为什么在这里检查，而不让page_fault去处理可能非法指针访问
+   * 是因为如果指针非法process_execute在page_fault之前会分配资源
+   * 而page_fault的实现只是简单的exit，这样会资源泄露 */
+  if (!check_string (file))
+    sys_exit (-1);
   return process_execute(file);
 }
 
@@ -140,3 +149,7 @@ check_args(uint32_t *args) {
   return 1;
 }
 
+int
+check_string(const char *s) {
+  return check_pointer ((void*)(s + strlen(s) + 1));
+}
