@@ -86,4 +86,9 @@ vtop (const void *vaddr)
   return (uintptr_t) vaddr - (uintptr_t) PHYS_BASE;
 }
 
+static inline void*
+next_page (const void *vaddr)
+{
+  return (void*)((uintptr_t)pg_round_down (vaddr) + PGSIZE);
+}
 #endif /* threads/vaddr.h */

@@ -1,5 +1,6 @@
 #include "userprog/syscall.h"
 #include "userprog/process.h"
+#include "userprog/pagedir.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
@@ -15,7 +16,7 @@ static void syscall_handler (struct intr_frame *);
 tid_t sys_exec (const char *file);
 int sys_wait (tid_t tid);
 void sys_halt (void);
-int check_pointer(void *p);
+int check_bytes (void *start_, size_t size);
 int check_args(uint32_t *args);
 int check_string(const char *s);
 
@@ -29,8 +30,9 @@ static void
 syscall_handler (struct intr_frame *f UNUSED)
 {
   uint32_t* args = ((uint32_t*) f->esp);
-  if (!check_args(args))
+  if (!check_args(args)) {
     sys_exit(-1);
+  }
 
   if (args[0] == SYS_WRITE) {
     int fd = args[1]; 
@@ -69,7 +71,7 @@ sys_write(int fd, void *buffer, unsigned size)
 {
   if (fd < 0)
     return -1;
-  if (!check_string ((char*)buffer))
+  if (!check_bytes ((void*)buffer, size))
     sys_exit(-1);
 
   unsigned cnt = 0;
@@ -78,8 +80,6 @@ sys_write(int fd, void *buffer, unsigned size)
   if (fd == 1) {
     char *p = buf;
     while (cnt < size) {
-      if (!check_pointer(p))
-	return -1;
       serial_putc(*p);
       vga_putc(*p);
       p++;
@@ -92,11 +92,9 @@ sys_write(int fd, void *buffer, unsigned size)
 
 tid_t
 sys_exec(const char *file) {
-  /* 注意这里为什么在这里检查，而不让page_fault去处理可能非法指针访问
-   * 是因为如果指针非法process_execute在page_fault之前会分配资源
-   * 而page_fault的实现只是简单的exit，这样会资源泄露 */
-  if (!check_string (file))
+  if (!check_string (file)) {
     sys_exit (-1);
+  }
   return process_execute(file);
 }
 
@@ -117,20 +115,13 @@ sys_exit(int status) {
   thread_exit();
 }
 
-int
-check_pointer(void *p) {
-  uint32_t addr = (uint32_t)p;
-  return 0 < addr && addr < (uint32_t)PHYS_BASE;
-}
 
-/* 检查系统调用参数数组是否全部位于用户地址空间 */
+/* 检查系统调用参数数组是否全部位于用户地址空间
+ * 并且在页表里有相应的映射 */
 int
 check_args(uint32_t *args) {
   /* 先检查第一个指针指向的元素是否越界 */
-  if (!check_pointer(args))
-    return 0;
-  args += 1;
-  if (!check_pointer((char*)args - 1))
+  if (!check_bytes((void*)args, 4))
     return 0;
 
   /* 第一个元素没有越界，解引用获取系统调用号 */
@@ -141,9 +132,8 @@ check_args(uint32_t *args) {
   if (num == SYS_PRACTICE || num == SYS_EXIT)
     argc = 1;
 
-  args += argc;
-
-  if (!check_pointer((char*)args - 1))
+  args += 1;
+  if (!check_bytes((void*)args, sizeof (uint32_t) * argc))
     return 0;
 
   return 1;
@@ -151,5 +141,33 @@ check_args(uint32_t *args) {
 
 int
 check_string(const char *s) {
-  return check_pointer ((void*)(s + strlen(s) + 1));
+  const char *cp = s;
+  void *p = NULL;
+  while (check_bytes ((void*)cp, 1)) {
+    p = next_page (cp);
+    while ((void*)cp < p) {
+      /* 找到终止符返回true */
+      if (!(*cp))
+	return true;
+      cp++;
+    }
+  }
+  return false;
+}
+
+/* 检查以start为起点，大小为size bytes的连续数据
+ * 是否在用户地址空间，并且在页表有相应的映射 */
+int
+check_bytes (void *start, size_t size) {
+  void *end = (void*)((uintptr_t)start + size); 
+  if (end == NULL || end >= PHYS_BASE)
+    return false;
+
+  void *p = pg_round_down ((void*)start);
+  while (p <= end) {
+    if (!pagedir_get_page (thread_current ()->pagedir, p))
+      return false;
+    p = next_page (p);
+  }
+  return true;
 }
