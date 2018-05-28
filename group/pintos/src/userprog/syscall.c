@@ -20,10 +20,24 @@ int check_bytes (void *start_, size_t size);
 int check_args(uint32_t *args);
 int check_string(const char *s);
 
+static int argcs[16];
+
 void
 syscall_init (void)
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  argcs[SYS_PRACTICE] = 1;
+  argcs[SYS_HALT] = 0;
+  argcs[SYS_EXIT] = 1;
+  argcs[SYS_EXEC] = 1;
+  argcs[SYS_WAIT] = 1;
+  /*
+  args[SYS_CREATE] = ;
+  args[SYS_REMOVE] = 1;
+  args[SYS_OPEN] = 1;
+  args[SYS_FILESIZE] = 1;
+  args
+  */
 }
 
 static void
@@ -125,12 +139,7 @@ check_args(uint32_t *args) {
     return 0;
 
   /* 第一个元素没有越界，解引用获取系统调用号 */
-  int argc;
-  unsigned num = args[0];
-  if (num == SYS_WRITE)
-    argc = 3;
-  if (num == SYS_PRACTICE || num == SYS_EXIT)
-    argc = 1;
+  int argc = argcs[args[0]];
 
   args += 1;
   if (!check_bytes((void*)args, sizeof (uint32_t) * argc))
