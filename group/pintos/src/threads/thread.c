@@ -11,9 +11,13 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 #include "../devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#endif
+#ifdef FILESYS
+#include "filesys/file.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -226,6 +230,11 @@ thread_create (const char *name, int priority,
   process_init(t);
 #endif
 
+#ifdef FILESYS
+  t->fd_table = (struct file**)calloc (128, sizeof (struct file*));
+  t->open_cnt = 3;
+#endif
+
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
   kf->eip = NULL;
@@ -345,6 +354,23 @@ thread_exit (void)
 
 #ifdef USERPROG
   process_exit ();
+#endif
+
+#ifdef FILESYS
+  struct thread *t = thread_current ();
+  if (t->executable) {
+    file_allow_write (t->executable);
+    file_close (t->executable);
+  }
+
+  struct file **fd_table = t->fd_table; 
+  int i;
+  for (i = 3; i < OPEN_CNT_MAX; i++) {
+    struct file *f = fd_table[i];
+    if (f)
+      file_close (f);
+  }
+  free (fd_table);
 #endif
 
   /* Remove thread from all threads list, set our status to dying,

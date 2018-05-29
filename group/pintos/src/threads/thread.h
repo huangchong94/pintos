@@ -27,6 +27,9 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+
+#define OPEN_CNT_MAX 128
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -122,6 +125,12 @@ struct thread
 	struct semaphore load_sema;      /* 用于装载用户程序时，父子进程的同步 */
 	struct semaphore wait_sema;       /* 父进程wait时sema_down子进程的sema。
 					    子进程thread_exit完成前，sema_up */
+#endif
+
+#ifdef FILESYS
+       unsigned open_cnt;
+       struct file **fd_table;
+       struct file *executable;          /* 此内核线程要执行的可执行用户程序 */
 #endif
   };
 

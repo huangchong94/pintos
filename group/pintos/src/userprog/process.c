@@ -330,6 +330,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
       goto done;
     }
 
+  thread_current ()->executable = filesys_open (tokens[0]); 
+  file_deny_write (thread_current ()->executable);
+
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
