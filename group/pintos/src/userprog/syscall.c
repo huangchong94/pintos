@@ -220,9 +220,11 @@ sys_read(int fd, void *buffer,  unsigned size)
     sys_exit(-1);
   
   unsigned cnt = 0;
+  char *buf = (char*)buffer;
   if (fd == 0) {
     while (cnt < size) {
-      input_getc ();
+      uint8_t c = input_getc ();
+      buf[cnt] = c;
       cnt++;
     }
     return (int)cnt;
