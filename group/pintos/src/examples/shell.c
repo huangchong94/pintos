@@ -59,9 +59,8 @@ read_line (char line[], size_t size)
 
       switch (c)
         {
-        case '\r':
+        case '\n':
           *pos = '\0';
-          putchar ('\n');
           return;
 
         case '\b':
